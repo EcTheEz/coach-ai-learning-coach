@@ -1,0 +1,5 @@
+.env
+coachai.sqlite3
+coachai.sqlite3-shm
+coachai.sqlite3-wal
+__pycache__/
