@@ -11,6 +11,7 @@ import sqlite3
 import time
 import urllib.error
 import urllib.request
+from collections import defaultdict, deque
 from datetime import date
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -18,7 +19,8 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parent
-DB_PATH = Path(os.environ.get("COACH_DB_PATH", str(ROOT / "coachai.sqlite3"))).resolve()
+DB_PATH = Path(os.environ.get("COACH_DB_PATH", os.environ.get("DATABASE_PATH", str(ROOT / "coachai.sqlite3")))).resolve()
+RATE_LIMITS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 
 
 def load_dotenv() -> None:
@@ -106,11 +108,35 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+        self.add_cors_headers()
         if headers:
             for key, value in headers.items():
                 self.send_header(key, value)
         self.end_headers()
         self.wfile.write(data)
+
+    def allowed_origins(self) -> set[str]:
+        return {origin.strip().rstrip("/") for origin in os.environ.get("COACH_ALLOWED_ORIGINS", "").split(",") if origin.strip()}
+
+    def add_cors_headers(self) -> None:
+        origin = self.headers.get("Origin", "").rstrip("/")
+        if origin and origin in self.allowed_origins():
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Vary", "Origin")
+
+    def do_OPTIONS(self):
+        origin = self.headers.get("Origin", "").rstrip("/")
+        if origin not in self.allowed_origins():
+            return self.send_error(403)
+        self.send_response(204)
+        self.add_cors_headers()
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def body(self) -> dict:
         size = int(self.headers.get("Content-Length", "0"))
@@ -125,11 +151,13 @@ class Handler(SimpleHTTPRequestHandler):
         return value
 
     def session_user(self):
+        authorization = self.headers.get("Authorization", "")
+        token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
         cookie = SimpleCookie(self.headers.get("Cookie", ""))
         morsel = cookie.get("coach_session")
-        if not morsel:
+        if not token and not morsel:
             return None
-        token_hash = hashlib.sha256(morsel.value.encode()).hexdigest()
+        token_hash = hashlib.sha256((token or morsel.value).encode()).hexdigest()
         with connect() as db:
             return db.execute("""SELECT users.id, users.email FROM sessions
                 JOIN users ON users.id=sessions.user_id
@@ -143,6 +171,8 @@ class Handler(SimpleHTTPRequestHandler):
         return user
 
     def do_GET(self):
+        if self.path == "/healthz":
+            return self.send_json(200, {"ok": True})
         if self.path == "/api/me":
             user = self.session_user()
             if not user:
@@ -159,6 +189,22 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self):
+        origin = self.headers.get("Origin")
+        same_origin = f"{self.headers.get('X-Forwarded-Proto', 'http')}://{self.headers.get('Host', '')}".rstrip("/")
+        if origin and origin.rstrip("/") != same_origin and origin.rstrip("/") not in self.allowed_origins():
+            return self.send_json(403, {"error": "This request came from another site."})
+        if self.headers.get("Sec-Fetch-Site") == "cross-site" and (not origin or origin.rstrip("/") not in self.allowed_origins()):
+            return self.send_json(403, {"error": "This request came from another site."})
+        limit_name = "coach" if self.path == "/api/coach" else "auth" if self.path in ("/api/signup", "/api/login") else "write"
+        limit, window = (30, 3600) if limit_name == "coach" else (12, 60) if limit_name == "auth" else (120, 60)
+        now = time.monotonic()
+        remote_ip = self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[0].strip()
+        bucket = RATE_LIMITS[(remote_ip, limit_name)]
+        while bucket and now - bucket[0] > window:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            return self.send_json(429, {"error": "Too many requests. Please wait a little and try again."}, {"Retry-After": str(max(1, int(window - (now - bucket[0]))))})
+        bucket.append(now)
         try:
             data = self.body()
             if self.path == "/api/signup":
@@ -210,13 +256,16 @@ class Handler(SimpleHTTPRequestHandler):
         with connect() as db:
             db.execute("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)", (token_hash, user_id, expires))
         cookie = f"coach_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000" + ("; Secure" if os.environ.get("COACH_SECURE_COOKIE") == "1" else "")
-        return self.send_json(200, {"user": {"email": email}}, {"Set-Cookie": cookie})
+        return self.send_json(200, {"user": {"email": email}, "token": token}, {"Set-Cookie": cookie})
 
     def logout(self):
         cookie = SimpleCookie(self.headers.get("Cookie", ""))
         morsel = cookie.get("coach_session")
-        if morsel:
-            token_hash = hashlib.sha256(morsel.value.encode()).hexdigest()
+        authorization = self.headers.get("Authorization", "")
+        bearer = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+        token = bearer or (morsel.value if morsel else "")
+        if token:
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
             with connect() as db:
                 db.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash,))
         return self.send_json(200, {"ok": True}, {"Set-Cookie": "coach_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"})
@@ -298,7 +347,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     init_db()
-    host = os.environ.get("COACH_HOST", "127.0.0.1")
+    host = os.environ.get("HOST", "0.0.0.0" if os.environ.get("RENDER") else os.environ.get("COACH_HOST", "127.0.0.1"))
     port = int(os.environ.get("PORT", "8000"))
     print(f"Coach AI running at http://{host}:{port}")
     ThreadingHTTPServer((host, port), Handler).serve_forever()

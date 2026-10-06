@@ -1,6 +1,6 @@
 # Coach AI
 
-A personal learning coach prototype with email accounts, persistent coursework, a weekly due-date calendar, and a server-side Gemini AI coach. The app uses only Python's standard library and browser APIs.
+A personal learning coach with email accounts, persistent coursework, a weekly due-date calendar, and a server-side Gemini AI coach. The local backend uses Python's standard library and SQLite.
 
 ## Start locally
 
@@ -8,6 +8,17 @@ A personal learning coach prototype with email accounts, persistent coursework, 
 2. Copy `.env.example` to `.env` and add your Gemini API key to `GEMINI_API_KEY`.
 3. Run `python server.py` from this folder.
 4. Open <http://127.0.0.1:8000>, create an account, and ask your coach a question.
+
+## Host the complete app
+
+The web UI is published on GitHub Pages from a separate public front-end repository. The Python API runs as a Render web service with a persistent disk. The Render blueprint is in `render.yaml`.
+
+1. Create the Render service from the private `coach-ai-learning-coach` repository using `render.yaml`.
+2. Set the `GEMINI_API_KEY` secret in Render. Set `COACH_ALLOWED_ORIGINS` to the exact GitHub Pages origin, such as `https://ectheez.github.io`.
+3. Set the API URL in the Pages copy's `config.js` to the Render service URL.
+4. Enable GitHub Pages for the public front-end repository from its `main` branch and root folder.
+
+Render's free web services lose local files when they restart and sleep after inactivity. This app needs the paid web service and persistent disk declared in the blueprint for saved student data. Review current billing before creating the service.
 
 Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey). The key is read by the Python server, never sent to the browser, and `.env` is excluded from Git. Set `GEMINI_MODEL` in `.env` to change the model.
 
@@ -19,6 +30,6 @@ Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/ap
 - AI learning-coach chat routed through the server to Gemini, with coursework context.
 - Learner activity and practice-session state stored per account.
 
-## Before deploying publicly
+## Email and security notes
 
-This is a local-first MVP. It does not send email verification or password reset messages, and it is not configured for public hosting. Before exposing it to the internet, add verified email/password recovery, HTTPS and secure cookies, rate limiting, CSRF protection, database backups, and a production web server. Never commit `.env` or `coachai.sqlite3`.
+Email is currently the account sign-in identifier; the app does not send email verification or password reset messages. The server uses HTTPS-only cookies in production, restricts browser origins, applies basic request limits, and stores data on the persistent disk. Before broader public use, add verified email/password recovery and a managed database. Never commit `.env` or `coachai.sqlite3`.
