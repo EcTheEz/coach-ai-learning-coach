@@ -1,4 +1,4 @@
-"""Coach AI local web app: stdlib HTTP server, SQLite accounts, and Gemini proxy."""
+"""Coach AI local web app: stdlib HTTP server, SQLite accounts, and Infinite Agent proxy."""
 from __future__ import annotations
 
 import hashlib
@@ -316,33 +316,39 @@ class Handler(SimpleHTTPRequestHandler):
         user = self.require_user()
         if not user:
             return
-        api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-        if not api_key or api_key == "paste_your_key_here":
-            return self.send_json(503, {"error": "The coach AI isn't configured yet. Add GEMINI_API_KEY to your .env file and restart the server."})
         question = str(data.get("message", "")).strip()[:3000]
         if not question:
             return self.send_json(400, {"error": "Write a question for your coach first."})
         context = str(data.get("context", ""))[:2500]
-        model = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash").strip()
-        payload = {"system_instruction": {"parts": [{"text": "You are Coach AI, a warm, practical personal learning coach for a student. Help the student understand rather than simply giving answers. Be concise, ask one useful follow-up when it helps, and adapt to their goal and current work. Distinguish known facts from guesses. Never claim to have updated their saved progress."}]}, "contents": [{"role": "user", "parts": [{"text": f"Student context: {context or 'No extra context supplied.'}\n\nStudent message: {question}"}]}], "generationConfig": {"temperature": 0.6, "maxOutputTokens": 700}}
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "x-goog-api-key": api_key}, method="POST")
+        prompt = f"{question}\n\nStudent context:\n{context or 'No extra context supplied.'}"
+        agent_url = os.environ.get("INFINITE_AGENT_URL", "").strip().rstrip("/")
+        api_key = os.environ.get("OLLAMA_API_KEY", "").strip()
+        model = os.environ.get("OLLAMA_MODEL", "gemma4:31b").strip()
+        if not agent_url and (not api_key or api_key == "your-ollama-key"):
+            return self.send_json(503, {"error": "The Infinite Agent isn't configured yet. Set INFINITE_AGENT_URL or OLLAMA_API_KEY in your .env file and restart the server."})
+        if agent_url:
+            url = f"{agent_url}/api/coach"
+            payload = {"message": prompt}
+            headers = {"Content-Type": "application/json"}
+        else:
+            url = os.environ.get("OLLAMA_API_URL", "https://ollama.com/api/chat").strip()
+            payload = {"model": model, "messages": [{"role": "system", "content": "You are a warm, practical student and health coach. Help the student understand rather than simply giving answers. Be concise, safe, and personalized. Never claim to have updated saved progress."}, {"role": "user", "content": prompt}], "stream": False}
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=40) as response:
+            with urllib.request.urlopen(req, timeout=120) as response:
                 result = json.loads(response.read().decode())
-            parts = result.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-            answer = "\n".join(p.get("text", "") for p in parts if p.get("text"))
+            answer = result.get("reply") or result.get("message", {}).get("content", "")
             if not answer:
                 return self.send_json(502, {"error": "The AI returned an empty response. Try again."})
-            return self.send_json(200, {"answer": answer, "model": model})
+            return self.send_json(200, {"answer": answer, "model": "infinite-agent" if agent_url else model})
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:800]
-            print(f"Gemini HTTP {exc.code}: {detail}")
-            message = "The Gemini API rejected the request. Check your key, model, and API access in .env."
-            return self.send_json(502, {"error": message})
+            print(f"Infinite Agent/Ollama HTTP {exc.code}: {detail}")
+            return self.send_json(502, {"error": "The Infinite Agent rejected the request. Check INFINITE_AGENT_URL, OLLAMA_API_KEY, and OLLAMA_MODEL in .env."})
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-            print(f"Gemini request failed: {exc}")
-            return self.send_json(502, {"error": "Couldn't reach Gemini just now. Check the server's internet connection and try again."})
+            print(f"Infinite Agent/Ollama request failed: {exc}")
+            return self.send_json(502, {"error": "Couldn't reach the Infinite Agent just now. Check that it is running and reachable."})
 
 
 if __name__ == "__main__":

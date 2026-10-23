@@ -1,17 +1,17 @@
 # Coach AI
 
-A personal learning coach with email accounts, persistent coursework, a weekly due-date calendar, and a server-side Gemini AI coach. The local backend uses Python's standard library and SQLite.
+A personal learning coach with email accounts, persistent coursework, a weekly due-date calendar, and the local Infinite Agent coach. The local backend uses Python's standard library and SQLite.
 
 ## Start locally
 
 1. Install Python 3.10 or newer.
-2. Copy `.env.example` to `.env` and add your Gemini API key to `GEMINI_API_KEY`.
+2. Copy `.env.example` to `.env` and start the Infinite Agent from its folder (`npm start`), or configure the Ollama fallback variables.
 3. Run `python server.py` from this folder.
 4. Open <http://127.0.0.1:8000>, create an account, and ask your coach a question.
 
 ## Host the complete app
 
-The web UI is published on GitHub Pages from a separate public front-end repository. The Python API runs as a Render web service with a persistent disk. The Render blueprint is in `render.yaml`.
+The planned web UI uses GitHub Pages from a separate public front-end repository. The Python API runs as a Render web service with a persistent disk. The Render blueprint is in `render.yaml`.
 
 1. Create the Render service from the private `coach-ai-learning-coach` repository using `render.yaml`.
 2. Set the `GEMINI_API_KEY` secret in Render. Set `COACH_ALLOWED_ORIGINS` to the exact GitHub Pages origin, such as `https://ectheez.github.io`.
@@ -27,7 +27,7 @@ Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/ap
 - Email and password sign-up/sign-in. Passwords are salted and hashed; sessions use an HttpOnly cookie.
 - Coursework assignments and completion states stored in SQLite and scoped to each account.
 - Due date calendar, priorities, filters, notes, and estimated task time.
-- AI learning-coach chat routed through the server to Gemini, with coursework context.
+- AI learning-coach chat routed through the Infinite Agent; direct Ollama is supported as a fallback, with coursework context.
 - Learner activity and practice-session state stored per account.
 
 ## Email and security notes
