@@ -14,13 +14,13 @@ A personal learning coach with email accounts, persistent coursework, a weekly d
 The planned web UI uses GitHub Pages from a separate public front-end repository. The Python API runs as a Render web service with a persistent disk. The Render blueprint is in `render.yaml`.
 
 1. Create the Render service from the private `coach-ai-learning-coach` repository using `render.yaml`.
-2. Set the `GEMINI_API_KEY` secret in Render. Set `COACH_ALLOWED_ORIGINS` to the exact GitHub Pages origin, such as `https://ectheez.github.io`.
+2. Set the `INFINITE_AGENT_URL` and, when using the fallback, `OLLAMA_API_KEY` secrets in Render. Set `COACH_ALLOWED_ORIGINS` to the exact GitHub Pages origin, such as `https://ectheez.github.io`.
 3. Set the API URL in the Pages copy's `config.js` to the Render service URL.
 4. Enable GitHub Pages for the public front-end repository from its `main` branch and root folder.
 
 Render's free web services lose local files when they restart and sleep after inactivity. This app needs the paid web service and persistent disk declared in the blueprint for saved student data. Review current billing before creating the service.
 
-Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey). The key is read by the Python server, never sent to the browser, and `.env` is excluded from Git. Set `GEMINI_MODEL` in `.env` to change the model.
+The Infinite Agent URL and Ollama key are read by the Python server, never sent to the browser, and `.env` is excluded from Git. Set `OLLAMA_MODEL` in `.env` to change the fallback model.
 
 ## Working features
 
