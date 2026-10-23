@@ -1,25 +1,23 @@
 services:
   - type: web
     name: coach-ai-ectheez-api-2026
-    runtime: python
+    runtime: node
     plan: starter
-    buildCommand: python -m py_compile server.py
-    startCommand: python server.py
+    buildCommand: npm install
+    startCommand: npm start
     healthCheckPath: /healthz
     disk:
       name: coach-ai-data
       mountPath: /var/data
       sizeGB: 1
     envVars:
-      - key: HOST
-        value: 0.0.0.0
-      - key: COACH_DB_PATH
-        value: /var/data/coachai.sqlite3
+      - key: PORT
+        value: 10000
+      - key: DATA_DIR
+        value: /var/data
       - key: COACH_ALLOWED_ORIGINS
         value: https://ectheez.github.io
-      - key: COACH_SECURE_COOKIE
-        value: "1"
-      - key: GEMINI_MODEL
-        value: gemini-3.6-flash
-      - key: GEMINI_API_KEY
+      - key: OLLAMA_MODEL
+        value: gemma4:31b
+      - key: OLLAMA_API_KEY
         sync: false

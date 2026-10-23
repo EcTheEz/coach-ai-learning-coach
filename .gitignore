@@ -3,3 +3,5 @@ coachai.sqlite3
 coachai.sqlite3-shm
 coachai.sqlite3-wal
 __pycache__/
+node_modules/
+data/student-state.json

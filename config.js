@@ -1,3 +1,2 @@
-// Local default: API requests use the same origin. The GitHub Pages bundle
-// supplies its Render API URL in its own config.js.
-window.COACH_API_BASE = "";
+// Set this to the deployed Render URL when serving the static site from GitHub Pages.
+window.COACH_API_BASE = 'https://coach-ai-ectheez-api-2026.onrender.com';
